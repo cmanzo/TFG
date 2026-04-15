@@ -35,7 +35,7 @@ class GraphDataset:
 
         self.training_data = [
             self.populate_cluster(cluster, self.pupulation_std_sigma, num_additions)
-            for cluster in tqdm.tqdm_notebook(training_clusters)
+            for cluster in tqdm.tqdm(training_clusters)
         ]
 
     def __call__(self):
@@ -45,7 +45,7 @@ class GraphDataset:
         """Generate a dataset of graph-structured data."""
         dataset = []
 
-        for _ in tqdm.tqdm_notebook(
+        for _ in tqdm.tqdm(
             range(self.dataset_size), desc="Generating dataset"
         ):
             clusters, cluster_shifts = self.generate_clusters()
