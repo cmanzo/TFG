@@ -564,7 +564,7 @@ def calculate_metrics_for_experiments(df):
     all_results = []
 
     # Iterate over each unique experiment in the 'set' column
-    for experiment in tqdm.tqdm(df["set"].unique()):
+    for experiment in tqdm.tqdm_notebook(df["set"].unique()):
         # Filter the DataFrame for the current experiment
         experiment_data = df[df["set"] == experiment]
 
@@ -651,7 +651,7 @@ def calculate_only_aridagger(df):
     all_results = []
 
     # Iterate over each unique experiment in the 'set' column
-    for experiment in tqdm.tqdm(df["set"].unique()):
+    for experiment in df["set"].unique():#tqdm.tqdm_notebook(df["set"].unique()):
         # Filter the DataFrame for the current experiment
         experiment_data = df[df["set"] == experiment]
 
