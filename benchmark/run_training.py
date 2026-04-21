@@ -90,7 +90,7 @@ clusterer = clusterer.create()
 
 train_loader = DataLoader(
     dataset=augmented_dataset,  # The dataset to be loaded
-    batch_size=4,  # Number of samples per batch
+    batch_size=1,  # Number of samples per batch
     shuffle=True,  # Shuffle the dataset at every epoch
 )
 
