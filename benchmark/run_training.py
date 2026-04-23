@@ -2,7 +2,9 @@ import sys
 from pathlib import Path
 import re
 import pandas as pd
-
+from pathlib import Path
+import pickle
+from torch_geometric.loader import DataLoader
 
 
 
@@ -22,11 +24,11 @@ path = current_path / "csv_generats"
 
 
 csv_files = sorted(path.glob("*CM*.csv"), key=lambda x: int(re.findall(r'\d+', x.stem)[0]))
-training_indices = [1,2,3]
+training_indices = [1,2,3,4,5,6,7,8,9,10,11,12]
 training_paths = [csv_files[i - 1] for i in training_indices]
 validation_paths = [path for path in csv_files if path not in training_paths]
 
-import pandas as pd
+
 
 
 training_clusters, training_backgrounds = [], []
@@ -53,8 +55,8 @@ metadata = {
         "builder": "GraphDataset",
         "builder_kwargs": {
             "dataset_size": 1500,
-            "noise_point_range": [1200, 1500],
-            "cluster_count_range": [5, 10],
+            "noise_point_range": [300, 500],
+            "cluster_count_range": [3, 6],
             "connectivity_radius": 0.1,
             "cluster_sampling_range": [0.8, 1.0],
         },
@@ -66,19 +68,36 @@ metadata = {
 
 metadata = metadata[path.name]
 
+# ---- cache control ----
+DATA_CACHE_PATH = Path("augmented_dataset.pkl")
+LOAD_IF_AVAILABLE = True   # if True, load from disk when possible
+FORCE_REGENERATE = False   # if True, ignore cache and rebuild
+
 # Initialize the MIRO builder with the training clusters and metadata
 builder_args = (training_clusters,)
 if BLINKING:
     builder_args += (training_backgrounds,)
-    
+
 builder = getattr(lib, metadata["builder"])(
     *builder_args, **metadata["builder_kwargs"]
 )
-augmented_dataset = builder()
+
+# Decide whether to load or generate
+if LOAD_IF_AVAILABLE and DATA_CACHE_PATH.exists() and not FORCE_REGENERATE:
+    print(f"Loading dataset from {DATA_CACHE_PATH}")
+    with open(DATA_CACHE_PATH, "rb") as f:
+        augmented_dataset = pickle.load(f)
+else:
+    print("Generating dataset...")
+    augmented_dataset = builder()
+
+    print(f"Saving dataset to {DATA_CACHE_PATH}")
+    with open(DATA_CACHE_PATH, "wb") as f:
+        pickle.dump(augmented_dataset, f)
+
 
 
 import deeplay as dl
-from torch_geometric.loader import DataLoader
 
 clusterer = dl.MIRO(
     num_outputs=2,  # Number of output features (e.g., x, y displacements)
@@ -92,6 +111,7 @@ train_loader = DataLoader(
     dataset=augmented_dataset,  # The dataset to be loaded
     batch_size=1,  # Number of samples per batch
     shuffle=True,  # Shuffle the dataset at every epoch
+    pin_memory=False,  # Load the entire dataset into memory for faster access
 )
 
 # Initialize the trainer

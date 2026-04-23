@@ -20,6 +20,7 @@ class GraphDataset:
         connectivity_radius=1.0,
         pupulation_std_sigma=0.003,
         num_additions=4,
+        noise_exclusion_radius=0.02,
     ):
         self.training_clusters = training_clusters
         self.dataset_size = dataset_size
@@ -28,6 +29,7 @@ class GraphDataset:
         self.cluster_sampling_range = cluster_sampling_range
         self.connectivity_radius = connectivity_radius
         self.pupulation_std_sigma = pupulation_std_sigma
+        self.noise_exclusion_radius = noise_exclusion_radius
 
         self.laplacian_embedding = AddLaplacianEigenvectorPE(
             5, attr_name="x", is_undirected=True
@@ -49,7 +51,7 @@ class GraphDataset:
             range(self.dataset_size), desc="Generating dataset"
         ):
             clusters, cluster_shifts = self.generate_clusters()
-            noise_points = self.generate_noise_points()
+            noise_points = self.generate_noise_points(clusters)
 
             positions = np.concatenate([clusters, noise_points], axis=0)
             deltas = np.concatenate(cluster_shifts, axis=0)
@@ -107,10 +109,36 @@ class GraphDataset:
         )
         return np.dot(points, rotation_matrix)
 
-    def generate_noise_points(self):
-        """Generate random noise points."""
+    # def generate_noise_points(self):
+    #     """Generate random noise points."""
+    #     num_noise_points = np.random.randint(*self.noise_point_range)
+    #     return np.random.uniform(0, 1, size=(num_noise_points, 2))
+
+    def generate_noise_points(self, clusters, max_tries=100000):
+        """Generate random noise points that stay away from cluster points."""
         num_noise_points = np.random.randint(*self.noise_point_range)
-        return np.random.uniform(0, 1, size=(num_noise_points, 2))
+
+        noise_points = []
+        tries = 0
+        min_dist2 = self.noise_exclusion_radius ** 2
+
+        while len(noise_points) < num_noise_points and tries < max_tries:
+            candidate = np.random.uniform(0, 1, size=2)
+
+            # reject if too close to any cluster point
+            d2 = np.sum((clusters - candidate) ** 2, axis=1)
+            if np.all(d2 >= min_dist2):
+                noise_points.append(candidate)
+
+            tries += 1
+
+        if len(noise_points) < num_noise_points:
+            raise ValueError(
+                f"Could only place {len(noise_points)}/{num_noise_points} noise points. "
+                f"Try reducing noise_exclusion_radius."
+            )
+
+        return np.array(noise_points)
 
     def create_data_object(self, positions, deltas):
         """Create a `Data` object from positions and deltas."""
