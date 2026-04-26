@@ -51,14 +51,13 @@ for csv_path in training_paths:
 
 metadata = {
     "csv_generats": {
-        # "training_indices": list(range(1, 4)),
+        "training_indices": list(range(1, 6)),
         "builder": "GraphDataset",
         "builder_kwargs": {
             "dataset_size": 1500,
-            "noise_point_range": [300, 500],
-            "cluster_count_range": [3, 6],
-            "connectivity_radius": 0.1,
-            "cluster_sampling_range": [0.8, 1.0],
+            "noise_point_range": [450, 550],
+            "cluster_count_range": [10, 20],
+            "connectivity_radius": 0.2,
         },
 
         "recurrent_iterations": 20,

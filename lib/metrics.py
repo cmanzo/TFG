@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import scipy.spatial as sp
 import tqdm
 
+from sklearn.cluster import DBSCAN
+
+from lib.load import compute_test_graph
 
 def create_mask(hull_points, mask_dim, xmin, xmax, ymin, ymax):
     """
@@ -636,16 +639,7 @@ def calculate_only_aridagger(df):
 
     Returns:
     - pd.DataFrame: A DataFrame containing the calculated metrics for each experiment and clustering method, with the following columns:
-        - "experiment" (str): Identifier for the experiment.
-        - "class_names" (str): Name of the clustering method ("MIRO" or "DBSCAN").
-        - "IoU_values" (float): Intersection-over-Union (IoU) metric values.
-        - "ARI_values" (float): Adjusted Rand Index (ARI) metric values.
-        - "ARI_c_values" (float): Adjusted Rand Index (ARI) metric values computed for filtered data.
         - "ARI_dagger_values" (float): Adjusted Rand Index (ARI) using the refined "dagger" method.
-        - "AMI_values" (float): Adjusted Mutual Information (AMI) metric values.
-        - "JIc_values" (float): Jaccard index values based on cluster matching.
-        - "RMSRE_N_values" (float): Root Mean Square Relative Error in cluster sizes.
-        - "RMSE_centr_values" (float): Root Mean Square Error in centroid distances.
     """
     # Initialize a list to store results for all experiments
     all_results = []
@@ -686,3 +680,155 @@ def calculate_only_aridagger(df):
     final_results_df = pd.concat(all_results, ignore_index=True)
 
     return final_results_df
+
+def calculate_few_metrics_for_experiments(df):
+    """
+    Calculate clustering metrics (IoU, ARI, AMI, etc.) for each experiment in the dataset.
+
+    Parameters:
+    - df (pd.DataFrame): A DataFrame containing the following columns:
+        - "set" (str): Identifier for each experiment group.
+        - "x", "y" (float): Coordinates of points in the experiment.
+        - "index" (int): Ground truth cluster labels.
+        - "clustering-MIRO" (int): Predicted cluster labels from the MIRO algorithm.
+        - "clustering-DBSCAN" (int): Predicted cluster labels from the DBSCAN algorithm.
+
+    Returns:
+    - pd.DataFrame: A DataFrame containing the calculated metrics for each experiment and clustering method, with the following columns:
+        - "experiment" (str): Identifier for the experiment.
+        - "class_names" (str): Name of the clustering method ("MIRO" or "DBSCAN").
+        - "ARI_dagger_values" (float): Adjusted Rand Index (ARI) using the refined "dagger" method.
+        - "JIc_values" (float): Jaccard index values based on cluster matching.
+        - "RMSRE_N_values" (float): Root Mean Square Relative Error in cluster sizes.
+        - "RMSE_centr_values" (float): Root Mean Square Error in centroid distances.
+    """
+    # Initialize a list to store results for all experiments
+    all_results = []
+
+    # Iterate over each unique experiment in the 'set' column
+    for experiment in df["set"].unique():
+        # Filter the DataFrame for the current experiment
+        experiment_data = df[df["set"] == experiment]
+
+        # Define ground truth data (GTdata)
+        GTdata_exp = experiment_data[["x", "y", "index"]]
+
+        # Prepare class_data for MIRO and DBSCAN clustering results
+        class_data = [
+            # {"result": experiment_data["clustering-MIRO"].values},
+            {"result": experiment_data["clustering-predictions"].values},
+        ]
+
+        # Calculate ARI values
+        ARI_dagger_values = compute_ARI_dagger(GTdata_exp, class_data)
+
+        # Compute pairwise cluster matching and calculate metrics
+        JIc_values, RMSRE_N_values, RMSE_centr_values = compute_paired_metrics(
+            GTdata_exp, class_data, beta=0.9
+        )
+
+        # Store the results in a DataFrame for this experiment
+        results_df = pd.DataFrame(
+            {
+                "experiment": experiment,
+                "class_names": ["clustering-predictions"],
+                "ARI_dagger_values": ARI_dagger_values,
+                "JIc_values": JIc_values,
+                "RMSRE_N_values": RMSRE_N_values,
+                "RMSE_centr_values": RMSE_centr_values,
+            }
+        )
+
+        # Append the results DataFrame to the list
+        all_results.append(results_df)
+
+    # Concatenate all experiment results into a single DataFrame
+    final_results_df = pd.concat(all_results, ignore_index=True)
+
+    return final_results_df
+
+
+def evaluate_dbscan_best_on_validation_paths(
+    validation_paths,
+    study_dbscan,
+    gt_col="index",
+    x_cols=("x", "y"),
+    clusterer = None,
+    builder = None,
+):
+    """
+    Evaluate DBSCAN with study_dbscan.best_params on all validation experiments.
+
+    Each CSV is treated as one experiment. For every file:
+      - load CSV
+      - run DBSCAN on x,y
+      - store predictions in 'clustering-DBSCAN'
+      - assign a unique 'set' id
+      - compute metrics for MIRO and DBSCAN using your existing function
+
+    Parameters
+    ----------
+    validation_paths : list[str]
+        List of CSV paths, one per experiment.
+    study_dbscan : optuna.study.Study
+        Finished Optuna study with best_params for DBSCAN.
+    miro_col : str
+        Column containing MIRO predictions already present in the CSV.
+    gt_col : str
+        Ground-truth column.
+    x_cols : tuple[str, str]
+        Coordinate columns used by DBSCAN.
+
+    Returns
+    -------
+    final_results_df : pd.DataFrame
+        Metrics for all experiments and both methods.
+    experiments_df : pd.DataFrame
+        Concatenated point-level dataframe with DBSCAN predictions.
+    """
+    best_params = study_dbscan.best_params
+
+    all_experiments = []
+
+    for i, vpath in enumerate(tqdm.tqdm(validation_paths)):
+        vdata = pd.read_csv(vpath).copy()
+
+        # Basic checks
+        required_cols = [*x_cols, gt_col]
+        missing = [c for c in required_cols if c not in vdata.columns]
+        if missing:
+            raise ValueError(f"{vpath} is missing columns: {missing}")
+
+        if clusterer is not None:
+            val_graph = compute_test_graph(vdata, builder)     
+            labels = clusterer.clustering(
+                val_graph,
+                eps=best_params["eps"],
+                min_samples=best_params["min_samples"],
+                scaling=vdata[["x", "y"]].max().values,)
+
+            vdata["clustering-predictions"] = labels+ 1
+
+        else:
+            # Run DBSCAN on this experiment
+            labels = DBSCAN(
+                eps=best_params["eps"],
+                min_samples=best_params["min_samples"],
+            ).fit_predict(vdata[list(x_cols)])
+
+            # Keep raw DBSCAN labels, or shift by +1 if your metric code expects no -1
+            vdata["clustering-predictions"] = labels + 1
+
+
+        # Standardize GT column name if needed
+        if gt_col != "index":
+            vdata["index"] = vdata[gt_col]
+
+        vdata["set"] = i
+        all_experiments.append(vdata)
+
+    experiments_df = pd.concat(all_experiments, ignore_index=True)
+
+    final_results_df = calculate_few_metrics_for_experiments(experiments_df)
+
+    return final_results_df, experiments_df
